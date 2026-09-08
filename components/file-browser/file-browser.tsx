@@ -40,6 +40,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
@@ -320,26 +326,33 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
             <h1 className="text-sm font-semibold tracking-tight">Blobby</h1>
             <p className="text-xs text-muted-foreground">Vercel Blob</p>
           </div>
-          <div className="flex items-center gap-2">
-            {isAdmin ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href="/invites" />}
+          {username ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                nativeButton
+                render={<Button variant="ghost" size="sm" />}
               >
-                Invites
-              </Button>
-            ) : null}
-            <form action={logoutAction} className="flex items-center gap-2">
-              {username ? (
-                <span className="text-xs text-muted-foreground">{username}</span>
-              ) : null}
-              <Button type="submit" variant="outline" size="sm">
-                Sign out
-              </Button>
-            </form>
-          </div>
+                {username}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isAdmin ? (
+                  <DropdownMenuItem
+                    nativeButton={false}
+                    render={<Link href="/settings" />}
+                  >
+                    Settings
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  nativeButton={false}
+                  render={<button type="submit" form="sign-out-form" />}
+                >
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          <form id="sign-out-form" action={logoutAction} className="hidden" />
         </div>
         <FileToolbar
           query={query}

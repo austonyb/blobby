@@ -28,6 +28,7 @@ export async function createInviteAction(
       createdBy: session.id,
       role,
     })
+    revalidatePath("/settings")
     revalidatePath("/invites")
     return { token }
   } catch (error) {
@@ -45,6 +46,7 @@ export async function revokeInviteAction(formData: FormData) {
   const id = String(formData.get("id") ?? "")
   if (!id) return
   await revokeInvite(id)
+  revalidatePath("/settings")
   revalidatePath("/invites")
 }
 

@@ -78,7 +78,7 @@ export function InviteManager({ invites }: InviteManagerProps) {
       ) : null}
 
       <div className="grid gap-2">
-        <h2 className="text-sm font-medium">Invites</h2>
+        <h3 className="text-sm font-medium">Pending and past links</h3>
         {invites.length === 0 ? (
           <p className="text-sm text-muted-foreground">No invites yet.</p>
         ) : (

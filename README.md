@@ -51,10 +51,12 @@ Open [http://localhost:3000](http://localhost:3000).
 ### Invite someone
 
 1. Sign in as admin.
-2. Open **Invites** in the header (`/invites`).
+2. Click your name in the top right → **Settings**.
 3. Optionally check **Invite as admin**.
 4. **Create invite link**, then **Copy**.
 5. Send the URL yourself.
+
+On Settings you can also change roles and remove people. You cannot remove or demote the last admin, or delete your own account.
 
 Links expire in 7 days and work once. Pending invites can be revoked. The raw token is hashed in Blob, so the full URL is only shown at create time.
 
