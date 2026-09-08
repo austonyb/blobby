@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local agent planning notes
+task_plan.md
+findings.md
+progress.md
+.planning/
