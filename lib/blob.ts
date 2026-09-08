@@ -21,12 +21,24 @@ export function blobStoreUrl(): string | undefined {
 }
 
 function blobCommandOptions() {
+  // An explicit token always beats OIDC. Needed when the store lives on a
+  // different Vercel account than this deployment: Vercel injects
+  // VERCEL_OIDC_TOKEN, and pairing it with BLOB_STORE_ID 403s.
+  const token = blobReadWriteToken()
   const storeId = blobStoreId()
-  return storeId ? { storeId } : {}
+  return {
+    ...(token ? { token } : {}),
+    ...(storeId ? { storeId } : {}),
+  }
+}
+
+export function blobReadWriteToken(): string | undefined {
+  const value = process.env.BLOB_READ_WRITE_TOKEN?.trim()
+  return value ? value : undefined
 }
 
 export function hasReadWriteToken(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+  return Boolean(blobReadWriteToken())
 }
 
 export function isBlobConfigured(): boolean {

@@ -2,7 +2,7 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextResponse } from "next/server"
 
 import { requireApiSession } from "@/lib/auth/guard"
-import { blobAccess, hasReadWriteToken } from "@/lib/blob"
+import { blobAccess, blobReadWriteToken, hasReadWriteToken } from "@/lib/blob"
 import { isReservedPath } from "@/lib/paths"
 
 export async function POST(request: Request) {
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     const jsonResponse = await handleUpload({
       body,
       request,
+      token: blobReadWriteToken(),
       onBeforeGenerateToken: async (pathname) => {
         if (
           !pathname ||
