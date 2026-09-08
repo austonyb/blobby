@@ -20,5 +20,6 @@ export type ListResponse = {
   prefix: string
   items: BrowserItem[]
   hasMore: boolean
+  uncachedFolders?: string[]
   error?: string
 }

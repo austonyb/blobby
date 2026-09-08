@@ -31,7 +31,11 @@ export async function POST(request: Request) {
       if (item.pathname.includes("..")) {
         return NextResponse.json({ error: "Invalid path." }, { status: 400 })
       }
-      items.push({ pathname: item.pathname, kind: item.kind })
+      items.push({
+        pathname: item.pathname,
+        kind: item.kind,
+        size: typeof item.size === "number" ? item.size : undefined,
+      })
     }
 
     const result = await transferItems(

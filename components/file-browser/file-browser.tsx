@@ -39,7 +39,14 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { fileApiUrl, isValidFolderName, joinPath, normalizePrefix } from "@/lib/paths"
+import {
+  fileApiUrl,
+  isValidFolderName,
+  itemShareUrl,
+  joinPath,
+  normalizePrefix,
+  parentPrefix,
+} from "@/lib/paths"
 import { BLOBBY_DND, rangePaths, togglePath } from "@/lib/selection"
 import {
   nextSort,
@@ -62,7 +69,11 @@ function hasDragType(event: { dataTransfer: DataTransfer }, type: string) {
 }
 
 function toTransferItems(list: BrowserItem[]): TransferItem[] {
-  return list.map((item) => ({ pathname: item.pathname, kind: item.kind }))
+  return list.map((item) => ({
+    pathname: item.pathname,
+    kind: item.kind,
+    size: item.size,
+  }))
 }
 
 function toastTransfer(mode: TransferMode, result: TransferResult) {
@@ -95,6 +106,7 @@ export function FileBrowser({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const prefix = normalizePrefix(searchParams.get("path"))
+  const fileParam = searchParams.get("file")
   const sort = parseSortKey(searchParams.get("sort"))
   const dir = parseSortDir(searchParams.get("dir"))
 
@@ -115,6 +127,7 @@ export function FileBrowser({
   const [deleteItems, setDeleteItems] = useState<BrowserItem[] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCount = useRef(0)
+  const appliedFile = useRef<string | null>(null)
 
   const navigate = useCallback(
     (nextPrefix: string) => {
@@ -122,13 +135,63 @@ export function FileBrowser({
       const params = new URLSearchParams(searchParams.toString())
       if (normalized) params.set("path", normalized.replace(/\/+$/, ""))
       else params.delete("path")
+      params.delete("file")
       const queryString = params.toString()
       router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+      appliedFile.current = null
       setSelectedPaths([])
       setAnchorPath(null)
       setQuery("")
     },
     [pathname, router, searchParams],
+  )
+
+  const fillFolderSizes = useCallback(async (currentPrefix: string) => {
+    try {
+      const response = await fetch("/api/blob/folder-sizes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefix: currentPrefix }),
+      })
+      const json = (await response.json()) as {
+        sizes?: Record<string, number>
+        error?: string
+      }
+      if (!response.ok || !json.sizes) return
+      setData((current) => {
+        if (!current) return current
+        return {
+          ...current,
+          uncachedFolders: [],
+          items: current.items.map((item) => {
+            if (item.kind !== "folder") return item
+            return { ...item, size: json.sizes?.[item.pathname] ?? 0 }
+          }),
+        }
+      })
+    } catch {
+      /* keep cached/empty sizes */
+    }
+  }, [])
+
+  const applyList = useCallback(
+    (json: ListResponse, currentPrefix: string) => {
+      setData(json)
+      setLoadedPrefix(currentPrefix)
+      if (json.error) toast.error(json.error)
+      const shareFile = new URLSearchParams(window.location.search).get("file")
+      if (
+        shareFile &&
+        appliedFile.current !== shareFile &&
+        json.items.some((item) => item.pathname === shareFile)
+      ) {
+        appliedFile.current = shareFile
+        setSelectedPaths([shareFile])
+        setAnchorPath(shareFile)
+      }
+      if (json.uncachedFolders?.length) void fillFolderSizes(currentPrefix)
+    },
+    [fillFolderSizes],
   )
 
   const load = useCallback(async () => {
@@ -138,14 +201,12 @@ export function FileBrowser({
         `/api/blob/list?prefix=${encodeURIComponent(currentPrefix)}`,
       )
       const json = (await response.json()) as ListResponse
-      setData(json)
-      setLoadedPrefix(currentPrefix)
-      if (json.error) toast.error(json.error)
+      applyList(json, currentPrefix)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load files")
       setLoadedPrefix(currentPrefix)
     }
-  }, [prefix])
+  }, [applyList, prefix])
 
   useEffect(() => {
     const currentPrefix = prefix
@@ -155,9 +216,7 @@ export function FileBrowser({
       .then(async (response) => (await response.json()) as ListResponse)
       .then((json) => {
         if (cancelled) return
-        setData(json)
-        setLoadedPrefix(currentPrefix)
-        if (json.error) toast.error(json.error)
+        applyList(json, currentPrefix)
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -168,7 +227,7 @@ export function FileBrowser({
     return () => {
       cancelled = true
     }
-  }, [prefix])
+  }, [applyList, prefix])
 
   const loading = loadedPrefix !== prefix
   const items = useMemo(() => {
@@ -184,6 +243,17 @@ export function FileBrowser({
     [items, selectedPaths],
   )
   const selected = items.find((item) => item.pathname === selectedPaths.at(-1)) ?? null
+
+  useEffect(() => {
+    if (!fileParam || fileParam.endsWith("/")) return
+    const parent = parentPrefix(fileParam)
+    if (normalizePrefix(parent) === prefix) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (parent) params.set("path", parent.replace(/\/+$/, ""))
+    else params.delete("path")
+    const queryString = params.toString()
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+  }, [fileParam, prefix, pathname, router, searchParams])
 
   const configured = data?.configured ?? false
   const access: BlobAccess = data?.access ?? "private"
@@ -311,6 +381,15 @@ export function FileBrowser({
   function onDownload(item: BrowserItem) {
     if (item.kind !== "file") return
     window.open(fileApiUrl(item.pathname, true), "_blank", "noopener,noreferrer")
+  }
+
+  async function copyLink(item: BrowserItem) {
+    try {
+      await navigator.clipboard.writeText(itemShareUrl(item, window.location.origin))
+      toast.success("Link copied")
+    } catch {
+      toast.error("Could not copy link")
+    }
   }
 
   function onSelectItem(item: BrowserItem, event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) {
@@ -457,6 +536,7 @@ export function FileBrowser({
         onDelete={(item) => setDeleteItems(targetsFor(item))}
         onCopy={(item) => setClipboardFrom(targetsFor(item), "copy")}
         onCut={(item) => setClipboardFrom(targetsFor(item), "cut")}
+        onCopyLink={copyLink}
         onDragStart={(item, event) => {
           const list = targetsFor(item)
           event.dataTransfer.setData(BLOBBY_DND, JSON.stringify(toTransferItems(list)))
@@ -589,7 +669,7 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
           <div className="min-h-0 flex-1 overflow-hidden">{renderTable()}</div>
           {selected && !selectMode ? (
             <div className="h-[42%] shrink-0 overflow-hidden border-t">
-              <FilePreview item={selected} />
+              <FilePreview item={selected} onCopyLink={copyLink} />
             </div>
           ) : null}
         </div>
@@ -601,7 +681,7 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize="36" minSize="24" className="min-h-0 min-w-0 overflow-hidden">
               <div className="sticky top-0 flex h-full min-h-0 flex-col overflow-hidden">
-                <FilePreview item={selected} />
+                <FilePreview item={selected} onCopyLink={copyLink} />
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>

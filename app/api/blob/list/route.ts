@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { items, hasMore } = await listFolder(prefix)
+    const { items, hasMore, uncachedFolders } = await listFolder(prefix)
     const body: ListResponse = {
       configured: true,
       hasReadWriteToken: hasReadWriteToken(),
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       prefix,
       items,
       hasMore,
+      uncachedFolders,
     }
     return NextResponse.json(body)
   } catch (error) {
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
         prefix,
         items: [],
         hasMore: false,
+        uncachedFolders: [],
         error: message,
       } satisfies ListResponse,
       { status: 500 },

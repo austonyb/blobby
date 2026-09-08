@@ -2,7 +2,8 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextResponse } from "next/server"
 
 import { requireApiSession } from "@/lib/auth/guard"
-import { blobAccess, blobReadWriteToken, hasReadWriteToken } from "@/lib/blob"
+import { blobAccess, blobReadWriteToken, blobSize, hasReadWriteToken } from "@/lib/blob"
+import { onFileAdded } from "@/lib/folder-sizes"
 import { isReservedPath } from "@/lib/paths"
 
 export async function POST(request: Request) {
@@ -42,6 +43,10 @@ export async function POST(request: Request) {
             access: blobAccess(),
           }),
         }
+      },
+      onUploadCompleted: async ({ blob }) => {
+        const size = await blobSize(blob.pathname)
+        if (size) await onFileAdded(blob.pathname, size)
       },
     })
 

@@ -61,6 +61,7 @@ type FileTableProps = {
   onDelete: (item: BrowserItem) => void
   onCopy: (item: BrowserItem) => void
   onCut: (item: BrowserItem) => void
+  onCopyLink: (item: BrowserItem) => void
   onDragStart: (item: BrowserItem, event: DragEvent) => void
   onFolderDragOver: (item: BrowserItem, event: DragEvent) => void
   onFolderDrop: (item: BrowserItem, event: DragEvent) => void
@@ -129,6 +130,7 @@ function RowActions({
   onRename,
   onCopy,
   onCut,
+  onCopyLink,
   onDelete,
 }: {
   item: BrowserItem
@@ -137,6 +139,7 @@ function RowActions({
   onRename: (item: BrowserItem) => void
   onCopy: (item: BrowserItem) => void
   onCut: (item: BrowserItem) => void
+  onCopyLink: (item: BrowserItem) => void
   onDelete: (item: BrowserItem) => void
 }) {
   return (
@@ -147,6 +150,7 @@ function RowActions({
       {item.kind === "file" ? (
         <ContextMenuItem onClick={() => onDownload(item)}>Download</ContextMenuItem>
       ) : null}
+      <ContextMenuItem onClick={() => onCopyLink(item)}>Copy link</ContextMenuItem>
       <ContextMenuItem onClick={() => onRename(item)}>Rename</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => onCopy(item)}>Copy</ContextMenuItem>
@@ -176,6 +180,7 @@ export function FileTable({
   onDelete,
   onCopy,
   onCut,
+  onCopyLink,
   onDragStart,
   onFolderDragOver,
   onFolderDrop,
@@ -307,7 +312,7 @@ export function FileTable({
                     {itemTypeLabel(item)}
                   </TableCell>
                   <TableCell className="font-file text-[0.75rem] text-muted-foreground">
-                    {item.kind === "folder" ? "—" : formatBytes(item.size)}
+                    {formatBytes(item.size)}
                   </TableCell>
                   <TableCell className="font-file text-[0.75rem] text-muted-foreground">
                     {item.kind === "folder" ? "—" : formatDate(item.uploadedAt)}
@@ -331,6 +336,9 @@ export function FileTable({
                             Download
                           </DropdownMenuItem>
                         ) : null}
+                        <DropdownMenuItem onClick={() => onCopyLink(item)}>
+                          Copy link
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onRename(item)}>
                           Rename
                         </DropdownMenuItem>
@@ -360,6 +368,7 @@ export function FileTable({
                     onRename={onRename}
                     onCopy={onCopy}
                     onCut={onCut}
+                    onCopyLink={onCopyLink}
                     onDelete={onDelete}
                   />
                 </ContextMenuContent>

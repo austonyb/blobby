@@ -1,6 +1,7 @@
 export type TransferItem = {
   pathname: string
   kind: "file" | "folder"
+  size?: number
 }
 
 export type TransferMode = "copy" | "move"

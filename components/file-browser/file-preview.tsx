@@ -14,6 +14,7 @@ import type { BrowserItem } from "@/lib/types"
 
 type FilePreviewProps = {
   item: BrowserItem | null
+  onCopyLink?: (item: BrowserItem) => void
 }
 
 const TEXT_PREVIEW_LIMIT = 512 * 1024
@@ -28,7 +29,7 @@ function PreviewWell({ children }: { children: ReactNode }) {
   )
 }
 
-export function FilePreview({ item }: FilePreviewProps) {
+export function FilePreview({ item, onCopyLink }: FilePreviewProps) {
   if (!item) {
     return (
       <PreviewWell>
@@ -50,7 +51,9 @@ export function FilePreview({ item }: FilePreviewProps) {
       <PreviewWell>
         <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
           <p className="font-file text-sm font-medium">{item.name}</p>
-          <p className="text-sm text-muted-foreground">Folder</p>
+          <p className="text-sm text-muted-foreground">
+            Folder · {formatBytes(item.size)}
+          </p>
         </div>
       </PreviewWell>
     )
@@ -73,7 +76,12 @@ export function FilePreview({ item }: FilePreviewProps) {
       <div className="min-h-0 flex-1">
         <PreviewBody item={item} kind={kind} src={src} />
       </div>
-      <div className="p-3">
+      <div className="grid gap-2 p-3">
+        {onCopyLink ? (
+          <Button variant="outline" className="w-full bg-card" onClick={() => onCopyLink(item)}>
+            Copy link
+          </Button>
+        ) : null}
         <Button
           variant="outline"
           className="w-full bg-card"

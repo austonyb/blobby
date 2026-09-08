@@ -3,6 +3,7 @@ import {
   createFolder,
   del,
   get,
+  head,
   issueSignedToken,
   list,
   presignUrl,
@@ -11,6 +12,17 @@ import {
 } from "@vercel/blob"
 
 import { previewKind } from "@/lib/file-kind"
+import {
+  containingFolders,
+  onFileAdded,
+  onFileRemoved,
+  onFolderCopied,
+  onFolderCreated,
+  onFolderMoved,
+  onFolderRemoved,
+  readFolderSizes,
+  writeComputedSizes,
+} from "@/lib/folder-sizes"
 import { uniqueBasename } from "@/lib/names"
 import {
   basename,
@@ -81,27 +93,35 @@ export function assertNotReserved(pathname: string): void {
 export async function listFolder(prefixInput: string): Promise<{
   items: BrowserItem[]
   hasMore: boolean
+  uncachedFolders: string[]
 }> {
   requireBlobConfigured()
   const prefix = normalizePrefix(prefixInput)
   if (prefix && isReservedPath(prefix)) {
     throw new Error("That path is reserved.")
   }
-  const result = await list({
-    mode: "folded",
-    prefix: prefix || undefined,
-    limit: 1000,
-    ...blobCommandOptions(),
-  })
+
+  const [result, cached] = await Promise.all([
+    list({
+      mode: "folded",
+      prefix: prefix || undefined,
+      limit: 1000,
+      ...blobCommandOptions(),
+    }),
+    readFolderSizes(),
+  ])
 
   const folders: BrowserItem[] = (result.folders ?? [])
-    .map((folderPath) => ({
-      kind: "folder" as const,
-      name: basename(folderPath),
-      pathname: folderPath.endsWith("/") ? folderPath : `${folderPath}/`,
-    }))
+    .map((folderPath) => {
+      const pathname = folderPath.endsWith("/") ? folderPath : `${folderPath}/`
+      return {
+        kind: "folder" as const,
+        name: basename(folderPath),
+        pathname,
+        size: cached[pathname],
+      }
+    })
     .filter((folder) => folder.name.length > 0 && !isReservedPath(folder.pathname))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
 
   const files: BrowserItem[] = result.blobs
     .filter((blob) => !blob.pathname.endsWith("/") && !isReservedPath(blob.pathname))
@@ -115,9 +135,67 @@ export async function listFolder(prefixInput: string): Promise<{
       uploadedAt: blob.uploadedAt.toISOString(),
       previewKind: previewKind(blob.pathname),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
 
-  return { items: [...folders, ...files], hasMore: result.hasMore }
+  const uncachedFolders = folders
+    .filter((folder) => folder.size === undefined)
+    .map((folder) => folder.pathname)
+
+  return { items: [...folders, ...files], hasMore: result.hasMore, uncachedFolders }
+}
+
+export async function listAllBlobs(prefix: string): Promise<{ pathname: string; size: number }[]> {
+  requireBlobConfigured()
+  const normalized = normalizePrefix(prefix)
+  const blobs: { pathname: string; size: number }[] = []
+  let cursor: string | undefined
+  let hasMore = true
+
+  while (hasMore) {
+    const page = await list({
+      prefix: normalized || undefined,
+      cursor,
+      limit: 1000,
+      ...blobCommandOptions(),
+    })
+    blobs.push(
+      ...page.blobs.map((blob) => ({ pathname: blob.pathname, size: blob.size })),
+    )
+    hasMore = page.hasMore
+    cursor = page.cursor
+  }
+
+  return blobs
+}
+
+export async function blobSize(pathname: string): Promise<number | undefined> {
+  try {
+    return (await head(pathname, blobCommandOptions())).size
+  } catch {
+    return undefined
+  }
+}
+
+export async function computeFolderSizes(prefixInput: string): Promise<Record<string, number>> {
+  requireBlobConfigured()
+  const prefix = normalizePrefix(prefixInput)
+  const blobs = await listAllBlobs(prefix)
+  const totals: Record<string, number> = {}
+  if (prefix) totals[prefix] = 0
+
+  for (const blob of blobs) {
+    if (blob.pathname.endsWith("/")) {
+      const folder = normalizePrefix(blob.pathname)
+      if (totals[folder] === undefined) totals[folder] = 0
+      continue
+    }
+    for (const folder of containingFolders(blob.pathname)) {
+      if (prefix && folder !== prefix && !folder.startsWith(prefix)) continue
+      totals[folder] = (totals[folder] ?? 0) + blob.size
+    }
+  }
+
+  await writeComputedSizes(totals)
+  return totals
 }
 
 export async function getJson<T>(pathname: string): Promise<{
@@ -153,18 +231,33 @@ export async function putJson(pathname: string, data: unknown, etag?: string) {
   })
 }
 
-export async function createEmptyFolder(pathname: string) {
+export async function createEmptyFolder(
+  pathname: string,
+  options?: { updateSizes?: boolean },
+) {
   requireBlobConfigured()
   assertNotReserved(pathname)
   const folderPath = pathname.endsWith("/") ? pathname : `${pathname}/`
-  return createFolder(folderPath, { access: blobAccess(), ...blobCommandOptions() })
+  const created = await createFolder(folderPath, {
+    access: blobAccess(),
+    ...blobCommandOptions(),
+  })
+  if (options?.updateSizes !== false) await onFolderCreated(folderPath)
+  return created
 }
 
-export async function deletePath(pathname: string, kind: "file" | "folder") {
+export async function deletePath(
+  pathname: string,
+  kind: "file" | "folder",
+  options?: { updateSizes?: boolean },
+) {
   requireBlobConfigured()
   assertNotReserved(pathname)
   if (kind === "file") {
+    const size =
+      options?.updateSizes !== false ? await blobSize(pathname) : undefined
     await del(pathname, blobCommandOptions())
+    if (options?.updateSizes !== false) await onFileRemoved(pathname, size)
     return
   }
 
@@ -184,6 +277,7 @@ export async function deletePath(pathname: string, kind: "file" | "folder") {
     await del(urls, blobCommandOptions())
   }
   await del(prefix, blobCommandOptions())
+  if (options?.updateSizes !== false) await onFolderRemoved(prefix)
 }
 
 export async function renamePath(fromPathname: string, toPathname: string) {
@@ -205,27 +299,6 @@ function writeOptions() {
   }
 }
 
-async function listBlobsUnder(prefix: string) {
-  const normalized = normalizePrefix(prefix)
-  const blobs: { pathname: string }[] = []
-  let cursor: string | undefined
-  let hasMore = true
-
-  while (hasMore) {
-    const page = await list({
-      prefix: normalized || undefined,
-      cursor,
-      limit: 1000,
-      ...blobCommandOptions(),
-    })
-    blobs.push(...page.blobs.map((blob) => ({ pathname: blob.pathname })))
-    hasMore = page.hasMore
-    cursor = page.cursor
-  }
-
-  return blobs
-}
-
 async function destNames(prefix: string) {
   const { items } = await listFolder(prefix)
   return new Set(items.map((item) => item.name.toLowerCase()))
@@ -240,8 +313,8 @@ function isFolderInsideItself(sourceFolder: string, destPrefix: string) {
 async function copyFolderTree(fromPrefix: string, toPrefix: string) {
   const from = normalizePrefix(fromPrefix)
   const to = normalizePrefix(toPrefix)
-  await createEmptyFolder(to)
-  const blobs = await listBlobsUnder(from)
+  await createEmptyFolder(to, { updateSizes: false })
+  const blobs = await listAllBlobs(from)
   blobs.sort((a, b) => a.pathname.length - b.pathname.length)
 
   for (const blob of blobs) {
@@ -250,7 +323,7 @@ async function copyFolderTree(fromPrefix: string, toPrefix: string) {
     if (!relative) continue
     const dest = `${to}${relative}`
     if (blob.pathname.endsWith("/")) {
-      await createEmptyFolder(dest)
+      await createEmptyFolder(dest, { updateSizes: false })
     } else {
       await copy(blob.pathname, dest, writeOptions())
     }
@@ -262,7 +335,7 @@ async function moveFolderTree(fromPrefix: string, toPrefix: string) {
   const to = normalizePrefix(toPrefix)
   if (from === to) return
   await copyFolderTree(from, to)
-  await deletePath(from, "folder")
+  await deletePath(from, "folder", { updateSizes: false })
 }
 
 export async function renameEntry(
@@ -285,6 +358,7 @@ export async function renameEntry(
       throw new Error("A folder with that name already exists.")
     }
     await moveFolderTree(from, to)
+    await onFolderMoved(from, to)
     return { pathname: to }
   }
 
@@ -339,12 +413,26 @@ export async function transferItems(
 
       if (item.kind === "folder") {
         const to = `${joinPath(dest, unique)}/`
-        if (mode === "copy") await copyFolderTree(item.pathname, to)
-        else await moveFolderTree(item.pathname, to)
+        if (mode === "copy") {
+          await copyFolderTree(item.pathname, to)
+          await onFolderCopied(item.pathname, to)
+        } else {
+          await moveFolderTree(item.pathname, to)
+          await onFolderMoved(item.pathname, to)
+        }
       } else {
         const to = joinPath(dest, unique)
-        if (mode === "copy") await copy(item.pathname, to, writeOptions())
-        else await renamePath(item.pathname, to)
+        const size = item.size
+        if (mode === "copy") {
+          await copy(item.pathname, to, writeOptions())
+          if (size) await onFileAdded(to, size)
+        } else {
+          await renamePath(item.pathname, to)
+          if (size) {
+            await onFileRemoved(item.pathname, size)
+            await onFileAdded(to, size)
+          }
+        }
       }
 
       if (mode === "copy") result.copied += 1
