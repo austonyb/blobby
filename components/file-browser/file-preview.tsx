@@ -94,7 +94,7 @@ function PreviewBody({
   if (kind === "video") {
     return (
       <div className="flex h-full items-center justify-center p-4">
-        <video src={src} controls className="max-h-full max-w-full" />
+        <SignedMedia kind="video" proxySrc={src} name={item.name} />
       </div>
     )
   }
@@ -102,7 +102,7 @@ function PreviewBody({
   if (kind === "audio") {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <audio src={src} controls className="w-full" />
+        <SignedMedia kind="audio" proxySrc={src} name={item.name} />
       </div>
     )
   }
@@ -122,6 +122,60 @@ function PreviewBody({
       <FileIcon className="size-8 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">No preview for this file type.</p>
     </div>
+  )
+}
+
+function SignedMedia({
+  kind,
+  proxySrc,
+  name,
+}: {
+  kind: "video" | "audio"
+  proxySrc: string
+  name: string
+}) {
+  const [src, setSrc] = useState(proxySrc)
+
+  useEffect(() => {
+    let cancelled = false
+    const signUrl = `${proxySrc}${proxySrc.includes("?") ? "&" : "?"}sign=1`
+
+    fetch(signUrl)
+      .then(async (response) => {
+        if (!response.ok) return null
+        return (await response.json()) as { url?: string }
+      })
+      .then((payload) => {
+        if (!cancelled && payload?.url) setSrc(payload.url)
+      })
+      .catch(() => {
+        /* keep cookie-authenticated proxy URL */
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [proxySrc])
+
+  if (kind === "video") {
+    return (
+      <video
+        key={src}
+        src={src}
+        controls
+        preload="metadata"
+        className="max-h-full max-w-full"
+      >
+        <track kind="captions" />
+        {name}
+      </video>
+    )
+  }
+
+  return (
+    <audio key={src} src={src} controls preload="metadata" className="w-full">
+      {name}
+    </audio>
   )
 }
 

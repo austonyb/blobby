@@ -1,21 +1,41 @@
 "use client"
 
-import { FolderPlusIcon, UploadIcon } from "lucide-react"
+import { ArrowDownAZIcon, ArrowUpZAIcon, FolderPlusIcon, UploadIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import type { SortDir, SortKey } from "@/lib/sort"
 
 type FileToolbarProps = {
   query: string
   onQueryChange: (value: string) => void
+  sort: SortKey
+  dir: SortDir
+  onSortChange: (sort: SortKey, dir: SortDir) => void
   onUpload: () => void
   onNewFolder: () => void
   disableUpload?: boolean
 }
 
+const SORT_LABEL: Record<SortKey, string> = {
+  name: "Name",
+  size: "Size",
+  modified: "Date",
+}
+
 export function FileToolbar({
   query,
   onQueryChange,
+  sort,
+  dir,
+  onSortChange,
   onUpload,
   onNewFolder,
   disableUpload,
@@ -29,6 +49,32 @@ export function FileToolbar({
         className="w-full sm:max-w-xs"
       />
       <div className="flex items-center gap-2 sm:ml-auto">
+        <DropdownMenu>
+          <DropdownMenuTrigger nativeButton render={<Button variant="outline" />}>
+            {dir === "desc" ? (
+              <ArrowUpZAIcon data-icon="inline-start" />
+            ) : (
+              <ArrowDownAZIcon data-icon="inline-start" />
+            )}
+            {SORT_LABEL[sort]}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup
+              value={`${sort}:${dir}`}
+              onValueChange={(value) => {
+                const [nextSort, nextDir] = value.split(":") as [SortKey, SortDir]
+                onSortChange(nextSort, nextDir)
+              }}
+            >
+              <DropdownMenuRadioItem value="name:asc">Name A–Z</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="name:desc">Name Z–A</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="modified:desc">Newest</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="modified:asc">Oldest</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="size:desc">Largest</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="size:asc">Smallest</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button variant="outline" onClick={onNewFolder}>
           <FolderPlusIcon data-icon="inline-start" />
           New folder

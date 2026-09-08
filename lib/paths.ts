@@ -57,11 +57,19 @@ export function isValidFileName(name: string): boolean {
   return isValidFolderName(name)
 }
 
-export function fileApiUrl(pathname: string, download = false): string {
+export function fileApiUrl(
+  pathname: string,
+  options: boolean | { download?: boolean; sign?: boolean } = {},
+): string {
+  const opts = typeof options === "boolean" ? { download: options } : options
   const encoded = pathname
     .split("/")
     .filter(Boolean)
     .map((segment) => encodeURIComponent(segment))
     .join("/")
-  return `/api/blob/file/${encoded}${download ? "?download=1" : ""}`
+  const params = new URLSearchParams()
+  if (opts.download) params.set("download", "1")
+  if (opts.sign) params.set("sign", "1")
+  const query = params.toString()
+  return `/api/blob/file/${encoded}${query ? `?${query}` : ""}`
 }

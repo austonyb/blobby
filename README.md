@@ -6,12 +6,13 @@ Built with Next.js, shadcn/ui, and `@vercel/blob`. Files stay private: the app l
 
 ## Features
 
-- Folder browse with breadcrumbs, search, and a sticky preview pane
+- Folder browse with breadcrumbs, search, sort, and a sticky preview pane
 - Preview images, video, audio, PDF, and text; download everything else
 - Upload (button or drag-and-drop), new folder, rename, delete
 - First-run admin signup
 - Admin invite links (copy and send yourself — no email)
 - `.config` is hidden from the file list and blocked on upload/delete/rename
+- Light, dark, system, and extra themes (Tokyo Night, Catppuccin, Peach)
 
 ## Requirements
 

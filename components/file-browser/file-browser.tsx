@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 
+import { BlobbyMark } from "@/components/blobby-mark"
 import { FileBreadcrumbs } from "@/components/file-browser/file-breadcrumbs"
 import { FilePreview } from "@/components/file-browser/file-preview"
 import { FileTable } from "@/components/file-browser/file-table"
@@ -39,10 +40,15 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
+import { ThemePicker } from "@/components/theme-picker"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -53,6 +59,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { logoutAction } from "@/app/actions/auth"
 import { fileApiUrl, isValidFolderName, joinPath, normalizePrefix } from "@/lib/paths"
+import { parseSortDir, parseSortKey, sortItems } from "@/lib/sort"
 import type { BlobAccess, BrowserItem, ListResponse } from "@/lib/types"
 
 export function FileBrowser({
@@ -66,6 +73,8 @@ export function FileBrowser({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const prefix = normalizePrefix(searchParams.get("path"))
+  const sort = parseSortKey(searchParams.get("sort"))
+  const dir = parseSortDir(searchParams.get("dir"))
 
   const [data, setData] = useState<ListResponse | null>(null)
   const [loadedPrefix, setLoadedPrefix] = useState<string | null>(null)
@@ -138,9 +147,11 @@ export function FileBrowser({
   const items = useMemo(() => {
     const all = data?.items ?? []
     const q = query.trim().toLowerCase()
-    if (!q) return all
-    return all.filter((item) => item.name.toLowerCase().includes(q))
-  }, [data?.items, query])
+    const filtered = q
+      ? all.filter((item) => item.name.toLowerCase().includes(q))
+      : all
+    return sortItems(filtered, sort, dir)
+  }, [data?.items, dir, query, sort])
   const selected = items.find((item) => item.pathname === selectedPath) ?? null
 
   const configured = data?.configured ?? false
@@ -322,10 +333,13 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
     >
       <header className="flex shrink-0 flex-col gap-3 px-4 py-3 sm:px-6">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight">Blobby</h1>
-            <p className="text-xs text-muted-foreground">Vercel Blob</p>
-          </div>
+          <Link href="/" className="flex items-center gap-2 text-foreground">
+            <BlobbyMark className="size-7" />
+            <div>
+              <h1 className="text-sm font-semibold tracking-tight">Blobby</h1>
+              <p className="text-xs text-muted-foreground">Files</p>
+            </div>
+          </Link>
           {username ? (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -343,6 +357,13 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
                     Settings
                   </DropdownMenuItem>
                 ) : null}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Theme</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <ThemePicker />
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   nativeButton={false}
                   render={<button type="submit" form="sign-out-form" />}
@@ -357,6 +378,17 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
         <FileToolbar
           query={query}
           onQueryChange={setQuery}
+          sort={sort}
+          dir={dir}
+          onSortChange={(nextSort, nextDir) => {
+            const params = new URLSearchParams(searchParams.toString())
+            if (nextSort === "name") params.delete("sort")
+            else params.set("sort", nextSort)
+            if (nextDir === "asc") params.delete("dir")
+            else params.set("dir", nextDir)
+            const queryString = params.toString()
+            router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+          }}
           onUpload={() => fileInputRef.current?.click()}
           onNewFolder={() => setFolderOpen(true)}
           disableUpload={!canUpload && configured}

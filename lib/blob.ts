@@ -1,4 +1,13 @@
-import { createFolder, del, get, list, put, rename } from "@vercel/blob"
+import {
+  createFolder,
+  del,
+  get,
+  issueSignedToken,
+  list,
+  presignUrl,
+  put,
+  rename,
+} from "@vercel/blob"
 
 import { previewKind } from "@/lib/file-kind"
 import { basename, isReservedPath, normalizePrefix } from "@/lib/paths"
@@ -178,8 +187,37 @@ export async function renamePath(fromPathname: string, toPathname: string) {
   })
 }
 
-export async function getBlobStream(pathname: string) {
+export async function getBlobStream(
+  pathname: string,
+  extraHeaders?: HeadersInit,
+) {
   requireBlobConfigured()
   assertNotReserved(pathname)
-  return get(pathname, { access: blobAccess(), ...blobCommandOptions() })
+  return get(pathname, {
+    access: blobAccess(),
+    headers: extraHeaders,
+    ...blobCommandOptions(),
+  })
+}
+
+export async function signBlobGetUrl(pathname: string): Promise<{
+  url: string
+  expiresAt: number
+}> {
+  requireBlobConfigured()
+  assertNotReserved(pathname)
+  const expiresAt = Date.now() + 15 * 60 * 1000
+  const token = await issueSignedToken({
+    pathname,
+    operations: ["get"],
+    validUntil: Date.now() + 60 * 60 * 1000,
+    ...blobCommandOptions(),
+  })
+  const { presignedUrl } = await presignUrl(token, {
+    operation: "get",
+    pathname,
+    access: blobAccess(),
+    validUntil: expiresAt,
+  })
+  return { url: presignedUrl, expiresAt }
 }
