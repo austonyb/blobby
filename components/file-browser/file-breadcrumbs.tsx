@@ -22,7 +22,7 @@ export function FileBreadcrumbs({ prefix, onNavigate }: FileBreadcrumbsProps) {
 
   return (
     <Breadcrumb>
-      <BreadcrumbList>
+      <BreadcrumbList className="font-file flex-nowrap overflow-hidden text-[0.8125rem]">
         <BreadcrumbItem>
           {segments.length === 0 ? (
             <BreadcrumbPage>Files</BreadcrumbPage>
@@ -43,10 +43,11 @@ export function FileBreadcrumbs({ prefix, onNavigate }: FileBreadcrumbsProps) {
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 {isLast ? (
-                  <BreadcrumbPage>{segment}</BreadcrumbPage>
+                  <BreadcrumbPage className="truncate">{segment}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink
                     href="#"
+                    className="truncate"
                     onClick={(event) => {
                       event.preventDefault()
                       onNavigate(path)

@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { FileIcon } from "lucide-react"
 
+import { BlobbyMark } from "@/components/blobby-mark"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -17,24 +18,41 @@ type FilePreviewProps = {
 
 const TEXT_PREVIEW_LIMIT = 512 * 1024
 
+function PreviewWell({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col p-3">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-border bg-secondary">
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export function FilePreview({ item }: FilePreviewProps) {
   if (!item) {
     return (
-      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1 p-6 text-center">
-        <p className="text-sm font-medium">No file selected</p>
-        <p className="text-sm text-muted-foreground">
-          Choose a file to preview it here.
-        </p>
-      </div>
+      <PreviewWell>
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-center">
+          <BlobbyMark className="size-14 text-primary opacity-35" />
+          <div className="grid gap-1">
+            <p className="text-sm font-medium">No file selected</p>
+            <p className="text-sm text-muted-foreground">
+              Choose a file to preview it here.
+            </p>
+          </div>
+        </div>
+      </PreviewWell>
     )
   }
 
   if (item.kind === "folder") {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
-        <p className="text-sm font-medium">{item.name}</p>
-        <p className="text-sm text-muted-foreground">Folder</p>
-      </div>
+      <PreviewWell>
+        <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
+          <p className="font-file text-sm font-medium">{item.name}</p>
+          <p className="text-sm text-muted-foreground">Folder</p>
+        </div>
+      </PreviewWell>
     )
   }
 
@@ -42,11 +60,11 @@ export function FilePreview({ item }: FilePreviewProps) {
   const src = fileApiUrl(item.pathname)
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
+    <PreviewWell>
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{item.name}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="font-file truncate text-[0.8125rem] font-medium">{item.name}</p>
+          <p className="font-file mt-0.5 text-[0.75rem] text-muted-foreground">
             {formatBytes(item.size)} · {formatDate(item.uploadedAt)}
           </p>
         </div>
@@ -55,17 +73,17 @@ export function FilePreview({ item }: FilePreviewProps) {
       <div className="min-h-0 flex-1">
         <PreviewBody item={item} kind={kind} src={src} />
       </div>
-      <div className="border-t p-3">
+      <div className="p-3">
         <Button
           variant="outline"
-          className="w-full"
+          className="w-full bg-card"
           nativeButton={false}
           render={<a href={fileApiUrl(item.pathname, true)} />}
         >
           Download
         </Button>
       </div>
-    </div>
+    </PreviewWell>
   )
 }
 
@@ -233,7 +251,7 @@ function TextPreview({ src, size }: { src: string; size?: number }) {
 
   return (
     <ScrollArea className="h-full">
-      <pre className="p-4 font-mono text-xs leading-5 whitespace-pre-wrap">{text}</pre>
+      <pre className="font-file p-4 text-xs leading-5 whitespace-pre-wrap">{text}</pre>
     </ScrollArea>
   )
 }

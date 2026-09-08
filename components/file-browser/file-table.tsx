@@ -9,6 +9,7 @@ import {
   MoreHorizontalIcon,
 } from "lucide-react"
 
+import { BlobbyMark } from "@/components/blobby-mark"
 import { Button } from "@/components/ui/button"
 import {
   ContextMenu,
@@ -118,23 +119,26 @@ export function FileTable({
 
   if (items.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
-        <p className="text-sm font-medium">This folder is empty</p>
-        <p className="text-sm text-muted-foreground">
-          Drop files here or use Upload.
-        </p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+        <BlobbyMark className="size-14 text-primary opacity-40" />
+        <div className="grid gap-1">
+          <p className="text-sm font-medium">This folder is empty</p>
+          <p className="text-sm text-muted-foreground">
+            Drop files here or use Upload.
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <ScrollArea className="h-full min-h-0 overflow-hidden">
-      <Table>
+    <ScrollArea className="h-full min-h-0 overflow-hidden px-2">
+      <Table className="file-inventory">
         <TableHeader>
-          <TableRow>
-            <TableHead className="w-[48%]">Name</TableHead>
-            <TableHead className="w-[18%]">Size</TableHead>
-            <TableHead className="w-[26%]">Modified</TableHead>
+          <TableRow className="border-0 hover:bg-transparent">
+            <TableHead className="w-[48%] text-muted-foreground font-normal">Name</TableHead>
+            <TableHead className="w-[18%] text-muted-foreground font-normal">Size</TableHead>
+            <TableHead className="w-[26%] text-muted-foreground font-normal">Modified</TableHead>
             <TableHead className="w-[8%]">
               <span className="sr-only">Actions</span>
             </TableHead>
@@ -149,7 +153,7 @@ export function FileTable({
                   render={
                     <TableRow
                       data-state={isSelected ? "selected" : undefined}
-                      className="cursor-default"
+                      className="file-row cursor-default border-0 hover:bg-transparent data-[state=selected]:bg-transparent"
                       onClick={() => onSelect(item)}
                       onDoubleClick={() => onOpen(item)}
                     />
@@ -158,13 +162,13 @@ export function FileTable({
                   <TableCell>
                     <div className="flex min-w-0 items-center gap-2">
                       <ItemIcon item={item} />
-                      <span className="truncate">{item.name}</span>
+                      <span className="font-file truncate text-[0.8125rem]">{item.name}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="font-file text-[0.75rem] text-muted-foreground">
                     {item.kind === "folder" ? "—" : formatBytes(item.size)}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="font-file text-[0.75rem] text-muted-foreground">
                     {item.kind === "folder" ? "—" : formatDate(item.uploadedAt)}
                   </TableCell>
                   <TableCell className="text-right">

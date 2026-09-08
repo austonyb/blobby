@@ -52,7 +52,7 @@ export function UserManager({ users, currentUserId }: UserManagerProps) {
             return (
               <TableRow key={user.id}>
                 <TableCell>
-                  <span className="font-medium">{user.username}</span>
+                  <span className="font-file text-[0.8125rem] font-medium">{user.username}</span>
                   {isYou ? (
                     <Badge variant="outline" className="ml-2">
                       you

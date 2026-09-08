@@ -14,7 +14,7 @@ export function ThemeMenuButton() {
       <DropdownMenuTrigger nativeButton render={<Button variant="ghost" size="sm" />}>
         Theme
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center">
+      <DropdownMenuContent align="center" className="min-w-44 w-max">
         <ThemePicker />
       </DropdownMenuContent>
     </DropdownMenu>

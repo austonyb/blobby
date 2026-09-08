@@ -46,7 +46,7 @@ export function FileToolbar({
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         placeholder="Search this folder"
-        className="w-full sm:max-w-xs"
+        className="w-full bg-card sm:max-w-md"
       />
       <div className="flex items-center gap-2 sm:ml-auto">
         <DropdownMenu>
@@ -58,7 +58,7 @@ export function FileToolbar({
             )}
             {SORT_LABEL[sort]}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="min-w-40 w-max">
             <DropdownMenuRadioGroup
               value={`${sort}:${dir}`}
               onValueChange={(value) => {

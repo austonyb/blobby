@@ -1,11 +1,11 @@
 "use client"
 
 import { upload } from "@vercel/blob/client"
-import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 
+import { AppHeader } from "@/components/app-header"
 import { BlobbyMark } from "@/components/blobby-mark"
 import { FileBreadcrumbs } from "@/components/file-browser/file-breadcrumbs"
 import { FilePreview } from "@/components/file-browser/file-preview"
@@ -23,13 +23,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -40,24 +33,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { ThemePicker } from "@/components/theme-picker"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { Separator } from "@/components/ui/separator"
-import { logoutAction } from "@/app/actions/auth"
 import { fileApiUrl, isValidFolderName, joinPath, normalizePrefix } from "@/lib/paths"
 import { parseSortDir, parseSortKey, sortItems } from "@/lib/sort"
 import type { BlobAccess, BrowserItem, ListResponse } from "@/lib/types"
@@ -284,26 +264,22 @@ export function FileBrowser({
   if (!loading && data && !configured) {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
-        <Card className="max-w-lg">
-          <CardHeader>
-            <CardTitle>Connect Vercel Blob</CardTitle>
-            <CardDescription>
-              Add your store credentials to <code>.env.local</code>, then restart
-              the dev server.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs">
+        <div className="w-full max-w-lg rounded-[1.75rem] border border-border bg-card p-6">
+          <h1 className="text-lg font-medium">Connect Vercel Blob</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add your store credentials to <code className="font-file">.env.local</code>, then restart
+            the dev server.
+          </p>
+          <pre className="font-file mt-4 overflow-x-auto rounded-xl bg-secondary p-3 text-xs">
 {`BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
 BLOB_STORE_ID=store_...
 BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
-            </pre>
-            <p className="text-sm text-muted-foreground">
-              Copy values from your Vercel Blob store. See <code>env.example</code>{" "}
-              in the project root.
-            </p>
-          </CardContent>
-        </Card>
+          </pre>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Copy values from your Vercel Blob store. See{" "}
+            <code className="font-file">env.example</code> in the project root.
+          </p>
+        </div>
       </div>
     )
   }
@@ -331,50 +307,10 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
         void uploadFiles(event.dataTransfer.files)
       }}
     >
-      <header className="flex shrink-0 flex-col gap-3 px-4 py-3 sm:px-6">
-        <div className="flex items-center justify-between gap-3">
-          <Link href="/" className="flex items-center gap-2 text-foreground">
-            <BlobbyMark className="size-7" />
-            <div>
-              <h1 className="text-sm font-semibold tracking-tight">Blobby</h1>
-              <p className="text-xs text-muted-foreground">Files</p>
-            </div>
-          </Link>
-          {username ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                nativeButton
-                render={<Button variant="ghost" size="sm" />}
-              >
-                {username}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {isAdmin ? (
-                  <DropdownMenuItem
-                    nativeButton={false}
-                    render={<Link href="/settings" />}
-                  >
-                    Settings
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>Theme</DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    <ThemePicker />
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  nativeButton={false}
-                  render={<button type="submit" form="sign-out-form" />}
-                >
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          <form id="sign-out-form" action={logoutAction} className="hidden" />
-        </div>
+      <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <AppHeader username={username} isAdmin={isAdmin}>
+          <FileBreadcrumbs prefix={prefix} onNavigate={navigate} />
+        </AppHeader>
         <FileToolbar
           query={query}
           onQueryChange={setQuery}
@@ -393,14 +329,12 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
           onNewFolder={() => setFolderOpen(true)}
           disableUpload={!canUpload && configured}
         />
-        <FileBreadcrumbs prefix={prefix} onNavigate={navigate} />
         {uploadPercent !== null ? (
           <Progress value={uploadPercent} className="w-full">
             <span className="sr-only">Uploading {uploadPercent}%</span>
           </Progress>
         ) : null}
       </header>
-      <Separator className="shrink-0" />
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col md:hidden">
           <div className="min-h-0 flex-1 overflow-hidden">{renderTable()}</div>
@@ -426,9 +360,12 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
       </div>
 
       {dragging ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/80">
-          <div className="rounded-xl border bg-card px-6 py-4 text-sm font-medium shadow-sm">
-            Drop files to upload
+        <div className="drop-veil pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/12">
+          <div className="relative flex size-56 items-center justify-center">
+            <BlobbyMark className="absolute inset-0 size-full text-primary opacity-50" />
+            <p className="relative text-sm font-medium text-foreground">
+              Drop to add to this folder
+            </p>
           </div>
         </div>
       ) : null}

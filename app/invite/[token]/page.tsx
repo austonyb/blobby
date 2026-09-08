@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 
+import { AuthFrame } from "@/components/auth-frame"
 import { AcceptInviteForm } from "@/app/invite/[token]/accept-form"
 import { peekInvite } from "@/lib/auth/invites"
 import { getSession } from "@/lib/session"
@@ -29,14 +30,12 @@ export default async function InvitePage({
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
+    <AuthFrame>
       {message ? (
-        <p className="max-w-sm text-center text-sm text-muted-foreground">
-          {message}
-        </p>
+        <p className="text-center text-sm text-muted-foreground">{message}</p>
       ) : (
         <AcceptInviteForm token={token} role={invite?.role ?? "user"} />
       )}
-    </main>
+    </AuthFrame>
   )
 }
