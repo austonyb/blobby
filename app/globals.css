@@ -191,6 +191,22 @@
   border-radius: 0.45rem 1.4rem 1.15rem 0.5rem;
 }
 
+.file-row-cut td {
+  opacity: 0.45;
+}
+
+.file-row-drop td {
+  background: color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
+.file-row-drop td:first-child {
+  border-radius: 1.15rem 0.35rem 0.55rem 1.35rem;
+}
+
+.file-row-drop td:last-child {
+  border-radius: 0.45rem 1.4rem 1.15rem 0.5rem;
+}
+
 .drop-veil {
   transition: opacity 160ms ease;
 }

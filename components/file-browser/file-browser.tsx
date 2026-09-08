@@ -11,6 +11,7 @@ import { FileBreadcrumbs } from "@/components/file-browser/file-breadcrumbs"
 import { FilePreview } from "@/components/file-browser/file-preview"
 import { FileTable } from "@/components/file-browser/file-table"
 import { FileToolbar } from "@/components/file-browser/file-toolbar"
+import { OrganizeBar } from "@/components/file-browser/organize-bar"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,8 +40,49 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { fileApiUrl, isValidFolderName, joinPath, normalizePrefix } from "@/lib/paths"
-import { parseSortDir, parseSortKey, sortItems } from "@/lib/sort"
+import { BLOBBY_DND, rangePaths, togglePath } from "@/lib/selection"
+import {
+  nextSort,
+  parseSortDir,
+  parseSortKey,
+  sortItems,
+  type SortDir,
+  type SortKey,
+} from "@/lib/sort"
+import type { TransferItem, TransferMode, TransferResult } from "@/lib/transfer"
 import type { BlobAccess, BrowserItem, ListResponse } from "@/lib/types"
+
+type Clipboard = {
+  mode: "copy" | "cut"
+  items: TransferItem[]
+}
+
+function hasDragType(event: { dataTransfer: DataTransfer }, type: string) {
+  return [...event.dataTransfer.types].includes(type)
+}
+
+function toTransferItems(list: BrowserItem[]): TransferItem[] {
+  return list.map((item) => ({ pathname: item.pathname, kind: item.kind }))
+}
+
+function toastTransfer(mode: TransferMode, result: TransferResult) {
+  const count = mode === "copy" ? result.copied : result.moved
+  const verb = mode === "copy" ? "Copied" : "Moved"
+  if (count === 0 && result.skipped > 0) {
+    toast.error(result.errors[0] ?? "Nothing was transferred.")
+    return
+  }
+  const parts = [
+    count === 1 ? `${verb} 1 item` : `${verb} ${count} items`,
+  ]
+  if (result.keptBoth) {
+    parts.push(result.keptBoth === 1 ? "kept both once" : `kept both ${result.keptBoth} times`)
+  }
+  if (result.skipped) {
+    parts.push(result.skipped === 1 ? "skipped 1" : `skipped ${result.skipped}`)
+  }
+  toast.success(parts.join(", "))
+}
 
 export function FileBrowser({
   username,
@@ -59,14 +101,18 @@ export function FileBrowser({
   const [data, setData] = useState<ListResponse | null>(null)
   const [loadedPrefix, setLoadedPrefix] = useState<string | null>(null)
   const [query, setQuery] = useState("")
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const [anchorPath, setAnchorPath] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [clipboard, setClipboard] = useState<Clipboard | null>(null)
+  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [uploadPercent, setUploadPercent] = useState<number | null>(null)
   const [folderOpen, setFolderOpen] = useState(false)
   const [folderName, setFolderName] = useState("")
   const [renameItem, setRenameItem] = useState<BrowserItem | null>(null)
   const [renameValue, setRenameValue] = useState("")
-  const [deleteItem, setDeleteItem] = useState<BrowserItem | null>(null)
+  const [deleteItems, setDeleteItems] = useState<BrowserItem[] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCount = useRef(0)
 
@@ -78,7 +124,8 @@ export function FileBrowser({
       else params.delete("path")
       const queryString = params.toString()
       router.replace(queryString ? `${pathname}?${queryString}` : pathname)
-      setSelectedPath(null)
+      setSelectedPaths([])
+      setAnchorPath(null)
       setQuery("")
     },
     [pathname, router, searchParams],
@@ -132,11 +179,22 @@ export function FileBrowser({
       : all
     return sortItems(filtered, sort, dir)
   }, [data?.items, dir, query, sort])
-  const selected = items.find((item) => item.pathname === selectedPath) ?? null
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedPaths.includes(item.pathname)),
+    [items, selectedPaths],
+  )
+  const selected = items.find((item) => item.pathname === selectedPaths.at(-1)) ?? null
 
   const configured = data?.configured ?? false
   const access: BlobAccess = data?.access ?? "private"
   const canUpload = Boolean(data?.hasReadWriteToken)
+
+  function targetsFor(item: BrowserItem): BrowserItem[] {
+    if (selectedPaths.includes(item.pathname) && selectedItems.length > 1) {
+      return selectedItems
+    }
+    return [item]
+  }
 
   async function uploadFiles(files: FileList | File[]) {
     if (!canUpload) {
@@ -199,7 +257,11 @@ export function FileBrowser({
       const response = await fetch("/api/blob/rename", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pathname: renameItem.pathname, name: renameValue.trim() }),
+        body: JSON.stringify({
+          pathname: renameItem.pathname,
+          name: renameValue.trim(),
+          kind: renameItem.kind,
+        }),
       })
       const json = (await response.json()) as { error?: string }
       if (!response.ok) throw new Error(json.error ?? "Could not rename")
@@ -212,18 +274,25 @@ export function FileBrowser({
   }
 
   async function confirmDelete() {
-    if (!deleteItem) return
+    if (!deleteItems?.length) return
     try {
       const response = await fetch("/api/blob/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pathname: deleteItem.pathname, kind: deleteItem.kind }),
+        body: JSON.stringify({
+          items: deleteItems.map((item) => ({
+            pathname: item.pathname,
+            kind: item.kind,
+          })),
+        }),
       })
       const json = (await response.json()) as { error?: string }
       if (!response.ok) throw new Error(json.error ?? "Could not delete")
-      toast.success("Deleted")
-      setDeleteItem(null)
-      setSelectedPath(null)
+      toast.success(
+        deleteItems.length === 1 ? "Deleted" : `Deleted ${deleteItems.length} items`,
+      )
+      setDeleteItems(null)
+      setSelectedPaths([])
       await load()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not delete")
@@ -235,7 +304,8 @@ export function FileBrowser({
       navigate(item.pathname)
       return
     }
-    setSelectedPath(item.pathname)
+    setSelectedPaths([item.pathname])
+    setAnchorPath(item.pathname)
   }
 
   function onDownload(item: BrowserItem) {
@@ -243,20 +313,175 @@ export function FileBrowser({
     window.open(fileApiUrl(item.pathname, true), "_blank", "noopener,noreferrer")
   }
 
+  function onSelectItem(item: BrowserItem, event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) {
+    if (selectMode || event.metaKey || event.ctrlKey) {
+      setSelectedPaths((current) => togglePath(current, item.pathname))
+      setAnchorPath(item.pathname)
+      return
+    }
+    if (event.shiftKey && anchorPath) {
+      setSelectedPaths(rangePaths(items, anchorPath, item.pathname))
+      return
+    }
+    setSelectedPaths([item.pathname])
+    setAnchorPath(item.pathname)
+  }
+
+  const setClipboardFrom = useCallback((list: BrowserItem[], mode: "copy" | "cut") => {
+    if (list.length === 0) return
+    setClipboard({ mode, items: toTransferItems(list) })
+    toast.success(
+      mode === "cut"
+        ? list.length === 1
+          ? "Ready to move 1 item"
+          : `Ready to move ${list.length} items`
+        : list.length === 1
+          ? "Copied 1 item"
+          : `Copied ${list.length} items`,
+    )
+  }, [])
+
+  const runTransfer = useCallback(
+    async (
+      mode: TransferMode,
+      transferItems: TransferItem[],
+      destinationPrefix: string,
+    ) => {
+      if (transferItems.length === 0) return
+      try {
+        const response = await fetch("/api/blob/transfer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode,
+            items: transferItems,
+            destinationPrefix,
+          }),
+        })
+        const json = (await response.json()) as TransferResult & { error?: string }
+        if (!response.ok) throw new Error(json.error ?? "Could not transfer")
+        toastTransfer(mode, json)
+        if (mode === "move") {
+          setClipboard((current) => (current?.mode === "cut" ? null : current))
+          setSelectedPaths([])
+        }
+        await load()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not transfer")
+      }
+    },
+    [load],
+  )
+
+  const pasteClipboard = useCallback(() => {
+    if (!clipboard) return
+    void runTransfer(clipboard.mode === "cut" ? "move" : "copy", clipboard.items, prefix)
+  }, [clipboard, prefix, runTransfer])
+
+  const applySort = useCallback(
+    (nextSort: SortKey, nextDir: SortDir) => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (nextSort === "name") params.delete("sort")
+      else params.set("sort", nextSort)
+      if (nextDir === "asc") params.delete("dir")
+      else params.set("dir", nextDir)
+      const queryString = params.toString()
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+    },
+    [pathname, router, searchParams],
+  )
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null
+      if (target?.closest("input, textarea, select, [contenteditable=true]")) return
+
+      const meta = event.metaKey || event.ctrlKey
+      if (event.key === "Escape") {
+        setSelectedPaths([])
+        setSelectMode(false)
+        return
+      }
+      if (meta && event.key.toLowerCase() === "a") {
+        event.preventDefault()
+        setSelectedPaths(items.map((item) => item.pathname))
+        return
+      }
+      if (meta && event.key.toLowerCase() === "c") {
+        event.preventDefault()
+        setClipboardFrom(selectedItems, "copy")
+        return
+      }
+      if (meta && event.key.toLowerCase() === "x") {
+        event.preventDefault()
+        setClipboardFrom(selectedItems, "cut")
+        return
+      }
+      if (meta && event.key.toLowerCase() === "v") {
+        event.preventDefault()
+        pasteClipboard()
+        return
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedItems.length > 0) {
+        event.preventDefault()
+        setDeleteItems(selectedItems)
+      }
+    }
+
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [clipboard, items, pasteClipboard, selectedItems, setClipboardFrom])
+
   function renderTable() {
     return (
       <FileTable
         items={items}
-        selected={selected}
+        selectedPaths={selectedPaths}
+        selectMode={selectMode}
+        cutPaths={clipboard?.mode === "cut" ? clipboard.items.map((item) => item.pathname) : []}
+        dropTargetPath={dropTargetPath}
         loading={loading}
-        onSelect={(item) => setSelectedPath(item.pathname)}
+        sort={sort}
+        dir={dir}
+        onSort={(key) => {
+          const next = nextSort(sort, dir, key)
+          applySort(next.sort, next.dir)
+        }}
+        onSelect={onSelectItem}
         onOpen={onOpen}
         onDownload={onDownload}
         onRename={(item) => {
           setRenameItem(item)
           setRenameValue(item.name)
         }}
-        onDelete={setDeleteItem}
+        onDelete={(item) => setDeleteItems(targetsFor(item))}
+        onCopy={(item) => setClipboardFrom(targetsFor(item), "copy")}
+        onCut={(item) => setClipboardFrom(targetsFor(item), "cut")}
+        onDragStart={(item, event) => {
+          const list = targetsFor(item)
+          event.dataTransfer.setData(BLOBBY_DND, JSON.stringify(toTransferItems(list)))
+          event.dataTransfer.effectAllowed = "move"
+        }}
+        onFolderDragOver={(item, event) => {
+          if (!hasDragType(event, BLOBBY_DND)) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = "move"
+          setDropTargetPath(item.pathname)
+        }}
+        onFolderDrop={(item, event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          setDropTargetPath(null)
+          const raw = event.dataTransfer.getData(BLOBBY_DND)
+          if (!raw) return
+          try {
+            const payload = JSON.parse(raw) as TransferItem[]
+            void runTransfer("move", payload, item.pathname)
+          } catch {
+            toast.error("Could not move those items.")
+          }
+        }}
+        onFolderDragLeave={() => setDropTargetPath(null)}
       />
     )
   }
@@ -289,6 +514,7 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       onDragEnter={(event) => {
         event.preventDefault()
+        if (!hasDragType(event, "Files") || hasDragType(event, BLOBBY_DND)) return
         dragCount.current += 1
         setDragging(true)
       }}
@@ -304,6 +530,17 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
         event.preventDefault()
         dragCount.current = 0
         setDragging(false)
+        setDropTargetPath(null)
+        const raw = event.dataTransfer.getData(BLOBBY_DND)
+        if (raw) {
+          try {
+            const payload = JSON.parse(raw) as TransferItem[]
+            void runTransfer("move", payload, prefix)
+          } catch {
+            toast.error("Could not move those items.")
+          }
+          return
+        }
         void uploadFiles(event.dataTransfer.files)
       }}
     >
@@ -316,18 +553,30 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
           onQueryChange={setQuery}
           sort={sort}
           dir={dir}
-          onSortChange={(nextSort, nextDir) => {
-            const params = new URLSearchParams(searchParams.toString())
-            if (nextSort === "name") params.delete("sort")
-            else params.set("sort", nextSort)
-            if (nextDir === "asc") params.delete("dir")
-            else params.set("dir", nextDir)
-            const queryString = params.toString()
-            router.replace(queryString ? `${pathname}?${queryString}` : pathname)
-          }}
+          onSortChange={applySort}
           onUpload={() => fileInputRef.current?.click()}
           onNewFolder={() => setFolderOpen(true)}
           disableUpload={!canUpload && configured}
+          selectMode={selectMode}
+          onSelectModeChange={setSelectMode}
+        />
+        <OrganizeBar
+          selectedCount={
+            selectedItems.length > 1 || selectMode ? selectedItems.length : 0
+          }
+          clipboard={
+            clipboard
+              ? { mode: clipboard.mode, count: clipboard.items.length }
+              : null
+          }
+          onCopy={() => setClipboardFrom(selectedItems, "copy")}
+          onCut={() => setClipboardFrom(selectedItems, "cut")}
+          onPaste={pasteClipboard}
+          onDelete={() => setDeleteItems(selectedItems)}
+          onClear={() => {
+            setSelectedPaths([])
+            setSelectMode(false)
+          }}
         />
         {uploadPercent !== null ? (
           <Progress value={uploadPercent} className="w-full">
@@ -338,7 +587,7 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col md:hidden">
           <div className="min-h-0 flex-1 overflow-hidden">{renderTable()}</div>
-          {selected ? (
+          {selected && !selectMode ? (
             <div className="h-[42%] shrink-0 overflow-hidden border-t">
               <FilePreview item={selected} />
             </div>
@@ -411,7 +660,11 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rename</DialogTitle>
-            <DialogDescription>Keep the file extension if you still want it.</DialogDescription>
+            <DialogDescription>
+              {renameItem?.kind === "folder"
+                ? "This renames the folder and everything inside it."
+                : "Keep the file extension if you still want it."}
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
             <Label htmlFor="rename-name">Name</Label>
@@ -434,15 +687,19 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
       </Dialog>
 
       <AlertDialog
-        open={Boolean(deleteItem)}
-        onOpenChange={(open) => !open && setDeleteItem(null)}
+        open={Boolean(deleteItems?.length)}
+        onOpenChange={(open) => !open && setDeleteItems(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleteItem?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteItems?.length === 1
+                ? `Delete ${deleteItems[0]?.name}?`
+                : `Delete ${deleteItems?.length ?? 0} items?`}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteItem?.kind === "folder"
-                ? "This deletes the folder and everything inside it."
+              {deleteItems?.some((item) => item.kind === "folder")
+                ? "Folders are deleted with everything inside them. This cannot be undone."
                 : "This cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>

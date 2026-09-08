@@ -1,4 +1,5 @@
 import {
+  copy,
   createFolder,
   del,
   get,
@@ -10,7 +11,15 @@ import {
 } from "@vercel/blob"
 
 import { previewKind } from "@/lib/file-kind"
-import { basename, isReservedPath, normalizePrefix } from "@/lib/paths"
+import { uniqueBasename } from "@/lib/names"
+import {
+  basename,
+  isReservedPath,
+  joinPath,
+  normalizePrefix,
+  parentPrefix,
+} from "@/lib/paths"
+import type { TransferItem, TransferMode, TransferResult } from "@/lib/transfer"
 import type { BlobAccess, BrowserItem } from "@/lib/types"
 
 export function blobAccess(): BlobAccess {
@@ -185,6 +194,170 @@ export async function renamePath(fromPathname: string, toPathname: string) {
     access: blobAccess(),
     ...blobCommandOptions(),
   })
+}
+
+function writeOptions() {
+  return {
+    access: blobAccess(),
+    addRandomSuffix: false,
+    allowOverwrite: false,
+    ...blobCommandOptions(),
+  }
+}
+
+async function listBlobsUnder(prefix: string) {
+  const normalized = normalizePrefix(prefix)
+  const blobs: { pathname: string }[] = []
+  let cursor: string | undefined
+  let hasMore = true
+
+  while (hasMore) {
+    const page = await list({
+      prefix: normalized || undefined,
+      cursor,
+      limit: 1000,
+      ...blobCommandOptions(),
+    })
+    blobs.push(...page.blobs.map((blob) => ({ pathname: blob.pathname })))
+    hasMore = page.hasMore
+    cursor = page.cursor
+  }
+
+  return blobs
+}
+
+async function destNames(prefix: string) {
+  const { items } = await listFolder(prefix)
+  return new Set(items.map((item) => item.name.toLowerCase()))
+}
+
+function isFolderInsideItself(sourceFolder: string, destPrefix: string) {
+  const from = normalizePrefix(sourceFolder)
+  const to = normalizePrefix(destPrefix)
+  return Boolean(from) && (to === from || to.startsWith(from))
+}
+
+async function copyFolderTree(fromPrefix: string, toPrefix: string) {
+  const from = normalizePrefix(fromPrefix)
+  const to = normalizePrefix(toPrefix)
+  await createEmptyFolder(to)
+  const blobs = await listBlobsUnder(from)
+  blobs.sort((a, b) => a.pathname.length - b.pathname.length)
+
+  for (const blob of blobs) {
+    if (!blob.pathname.startsWith(from)) continue
+    const relative = blob.pathname.slice(from.length)
+    if (!relative) continue
+    const dest = `${to}${relative}`
+    if (blob.pathname.endsWith("/")) {
+      await createEmptyFolder(dest)
+    } else {
+      await copy(blob.pathname, dest, writeOptions())
+    }
+  }
+}
+
+async function moveFolderTree(fromPrefix: string, toPrefix: string) {
+  const from = normalizePrefix(fromPrefix)
+  const to = normalizePrefix(toPrefix)
+  if (from === to) return
+  await copyFolderTree(from, to)
+  await deletePath(from, "folder")
+}
+
+export async function renameEntry(
+  pathname: string,
+  kind: "file" | "folder",
+  name: string,
+) {
+  requireBlobConfigured()
+  assertNotReserved(pathname)
+  const parent = parentPrefix(pathname)
+  const toPathname =
+    kind === "folder" ? `${joinPath(parent, name)}/` : joinPath(parent, name)
+
+  if (kind === "folder") {
+    const from = normalizePrefix(pathname)
+    const to = normalizePrefix(toPathname)
+    if (from === to) return { pathname: from }
+    const taken = await destNames(parent)
+    if (taken.has(name.toLowerCase())) {
+      throw new Error("A folder with that name already exists.")
+    }
+    await moveFolderTree(from, to)
+    return { pathname: to }
+  }
+
+  const taken = await destNames(parent)
+  if (
+    taken.has(name.toLowerCase()) &&
+    basename(pathname).toLowerCase() !== name.toLowerCase()
+  ) {
+    throw new Error("A file with that name already exists.")
+  }
+  return renamePath(pathname, toPathname)
+}
+
+export async function transferItems(
+  items: TransferItem[],
+  destinationPrefix: string,
+  mode: TransferMode,
+): Promise<TransferResult> {
+  requireBlobConfigured()
+  const dest = normalizePrefix(destinationPrefix)
+  if (dest) assertNotReserved(dest)
+
+  const taken = await destNames(dest)
+  const result: TransferResult = {
+    copied: 0,
+    moved: 0,
+    keptBoth: 0,
+    skipped: 0,
+    errors: [],
+  }
+
+  for (const item of items) {
+    try {
+      assertNotReserved(item.pathname)
+      const name = basename(item.pathname)
+      const parent = parentPrefix(item.pathname)
+
+      if (item.kind === "folder" && isFolderInsideItself(item.pathname, dest)) {
+        result.skipped += 1
+        result.errors.push(`Could not ${mode} ${name} into itself.`)
+        continue
+      }
+
+      if (mode === "move" && parent === dest) {
+        result.skipped += 1
+        continue
+      }
+
+      const unique = uniqueBasename(name, taken)
+      if (unique !== name) result.keptBoth += 1
+      taken.add(unique.toLowerCase())
+
+      if (item.kind === "folder") {
+        const to = `${joinPath(dest, unique)}/`
+        if (mode === "copy") await copyFolderTree(item.pathname, to)
+        else await moveFolderTree(item.pathname, to)
+      } else {
+        const to = joinPath(dest, unique)
+        if (mode === "copy") await copy(item.pathname, to, writeOptions())
+        else await renamePath(item.pathname, to)
+      }
+
+      if (mode === "copy") result.copied += 1
+      else result.moved += 1
+    } catch (error) {
+      result.skipped += 1
+      result.errors.push(
+        error instanceof Error ? error.message : `Could not ${mode} ${item.pathname}`,
+      )
+    }
+  }
+
+  return result
 }
 
 export async function getBlobStream(
