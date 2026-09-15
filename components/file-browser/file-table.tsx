@@ -144,12 +144,11 @@ function RowActions({
 }) {
   return (
     <>
-      <ContextMenuItem onClick={() => onOpen(item)}>
-        {item.kind === "folder" ? "Open" : "Preview"}
-      </ContextMenuItem>
-      {item.kind === "file" ? (
+      {item.kind === "folder" ? (
+        <ContextMenuItem onClick={() => onOpen(item)}>Open</ContextMenuItem>
+      ) : (
         <ContextMenuItem onClick={() => onDownload(item)}>Download</ContextMenuItem>
-      ) : null}
+      )}
       <ContextMenuItem onClick={() => onCopyLink(item)}>Copy link</ContextMenuItem>
       <ContextMenuItem onClick={() => onRename(item)}>Rename</ContextMenuItem>
       <ContextMenuSeparator />
@@ -268,6 +267,7 @@ export function FileTable({
                   render={
                     <TableRow
                       data-state={isSelected ? "selected" : undefined}
+                      data-pathname={item.pathname}
                       draggable={!selectMode}
                       className={`file-row cursor-default border-0 hover:bg-transparent data-[state=selected]:bg-transparent${isCut ? " file-row-cut" : ""}${isDrop ? " file-row-drop" : ""}`}
                       onClick={(event) => onSelect(item, event)}
@@ -328,14 +328,15 @@ export function FileTable({
                         <span className="sr-only">Actions</span>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onOpen(item)}>
-                          {item.kind === "folder" ? "Open" : "Preview"}
-                        </DropdownMenuItem>
-                        {item.kind === "file" ? (
+                        {item.kind === "folder" ? (
+                          <DropdownMenuItem onClick={() => onOpen(item)}>
+                            Open
+                          </DropdownMenuItem>
+                        ) : (
                           <DropdownMenuItem onClick={() => onDownload(item)}>
                             Download
                           </DropdownMenuItem>
-                        ) : null}
+                        )}
                         <DropdownMenuItem onClick={() => onCopyLink(item)}>
                           Copy link
                         </DropdownMenuItem>
