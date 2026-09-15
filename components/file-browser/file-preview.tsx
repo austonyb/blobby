@@ -1,38 +1,35 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
-import { FileIcon } from "lucide-react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { FileIcon, FolderIcon } from "lucide-react"
 
 import { BlobbyMark } from "@/components/blobby-mark"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Progress } from "@/components/ui/progress"
 import { formatBytes, formatDate, previewKind } from "@/lib/file-kind"
 import { fileApiUrl } from "@/lib/paths"
-import type { BrowserItem } from "@/lib/types"
+import { canTranscodePreview, transcodePreview } from "@/lib/transcode-preview"
+import type { BrowserItem, ListResponse } from "@/lib/types"
 
 type FilePreviewProps = {
   item: BrowserItem | null
   onCopyLink?: (item: BrowserItem) => void
+  onOpenFolder?: (item: BrowserItem) => void
 }
 
 const TEXT_PREVIEW_LIMIT = 512 * 1024
 
-function PreviewWell({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col p-3">
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-border bg-secondary">
-        {children}
-      </div>
-    </div>
-  )
+function PreviewShell({ children }: { children: ReactNode }) {
+  return <div className="flex h-full min-h-0 flex-col">{children}</div>
 }
 
-export function FilePreview({ item, onCopyLink }: FilePreviewProps) {
+export function FilePreview({ item, onCopyLink, onOpenFolder }: FilePreviewProps) {
   if (!item) {
     return (
-      <PreviewWell>
+      <PreviewShell>
         <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-center">
           <BlobbyMark className="size-14 text-primary opacity-35" />
           <div className="grid gap-1">
@@ -42,20 +39,15 @@ export function FilePreview({ item, onCopyLink }: FilePreviewProps) {
             </p>
           </div>
         </div>
-      </PreviewWell>
+      </PreviewShell>
     )
   }
 
   if (item.kind === "folder") {
     return (
-      <PreviewWell>
-        <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
-          <p className="font-file text-sm font-medium">{item.name}</p>
-          <p className="text-sm text-muted-foreground">
-            Folder · {formatBytes(item.size)}
-          </p>
-        </div>
-      </PreviewWell>
+      <PreviewShell>
+        <FolderPreview key={item.pathname} item={item} onOpen={onOpenFolder} />
+      </PreviewShell>
     )
   }
 
@@ -63,8 +55,8 @@ export function FilePreview({ item, onCopyLink }: FilePreviewProps) {
   const src = fileApiUrl(item.pathname)
 
   return (
-    <PreviewWell>
-      <div className="flex items-start justify-between gap-3 px-4 py-3">
+    <PreviewShell>
+      <div className="flex shrink-0 items-start justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="font-file truncate text-[0.8125rem] font-medium">{item.name}</p>
           <p className="font-file mt-0.5 text-[0.75rem] text-muted-foreground">
@@ -76,7 +68,7 @@ export function FilePreview({ item, onCopyLink }: FilePreviewProps) {
       <div className="min-h-0 flex-1">
         <PreviewBody item={item} kind={kind} src={src} />
       </div>
-      <div className="grid gap-2 p-3">
+      <div className="grid shrink-0 gap-2 border-t border-border p-3">
         {onCopyLink ? (
           <Button variant="outline" className="w-full bg-card" onClick={() => onCopyLink(item)}>
             Copy link
@@ -91,7 +83,66 @@ export function FilePreview({ item, onCopyLink }: FilePreviewProps) {
           Download
         </Button>
       </div>
-    </PreviewWell>
+    </PreviewShell>
+  )
+}
+
+function FolderPreview({
+  item,
+  onOpen,
+}: {
+  item: BrowserItem
+  onOpen?: (item: BrowserItem) => void
+}) {
+  const [count, setCount] = useState<number | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(`/api/blob/list?prefix=${encodeURIComponent(item.pathname)}`)
+      .then(async (response) => (await response.json()) as ListResponse)
+      .then((json) => {
+        if (cancelled) return
+        setCount(json.items?.length ?? 0)
+        setHasMore(Boolean(json.hasMore))
+      })
+      .catch(() => {
+        if (!cancelled) setCount(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [item.pathname])
+
+  const itemLabel =
+    count === null
+      ? null
+      : hasMore
+        ? `${count}+ items`
+        : count === 1
+          ? "1 item"
+          : `${count} items`
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+      <FolderIcon className="size-10 text-muted-foreground" />
+      <div className="grid gap-1">
+        <p className="font-file text-sm font-medium">{item.name}</p>
+        {itemLabel ? (
+          <p className="text-sm text-muted-foreground">{itemLabel}</p>
+        ) : (
+          <Skeleton className="mx-auto h-4 w-20" />
+        )}
+        {item.size !== undefined ? (
+          <p className="text-sm text-muted-foreground">{formatBytes(item.size)}</p>
+        ) : null}
+      </div>
+      {onOpen ? (
+        <Button onClick={() => onOpen(item)}>Open folder</Button>
+      ) : null}
+    </div>
   )
 }
 
@@ -105,22 +156,13 @@ function PreviewBody({
   src: string
 }) {
   if (kind === "image") {
-    return (
-      <div className="flex h-full items-center justify-center bg-muted/30 p-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={item.name}
-          className="max-h-full max-w-full object-contain"
-        />
-      </div>
-    )
+    return <ImagePreview key={src} src={src} name={item.name} />
   }
 
   if (kind === "video") {
     return (
       <div className="flex h-full items-center justify-center p-4">
-        <SignedMedia kind="video" proxySrc={src} name={item.name} />
+        <SignedMedia key={src} kind="video" proxySrc={src} name={item.name} size={item.size} />
       </div>
     )
   }
@@ -128,7 +170,7 @@ function PreviewBody({
   if (kind === "audio") {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <SignedMedia kind="audio" proxySrc={src} name={item.name} />
+        <SignedMedia key={src} kind="audio" proxySrc={src} name={item.name} />
       </div>
     )
   }
@@ -151,16 +193,57 @@ function PreviewBody({
   )
 }
 
+function ImagePreview({ src, name }: { src: string; name: string }) {
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <div className="relative flex h-full items-center justify-center bg-muted/30 p-4" aria-busy={!ready && !error}>
+      {!ready && !error ? (
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <Skeleton className="h-[min(16rem,70%)] w-[min(20rem,80%)]" />
+        </div>
+      ) : null}
+      {error ? (
+        <p className="p-6 text-center text-sm text-muted-foreground">{error}</p>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={name}
+          onLoad={() => setReady(true)}
+          onError={() => setError("This image could not be previewed.")}
+          className={`max-h-full max-w-full object-contain transition-opacity ${ready ? "opacity-100" : "opacity-0"}`}
+        />
+      )}
+    </div>
+  )
+}
+
 function SignedMedia({
   kind,
   proxySrc,
   name,
+  size,
 }: {
   kind: "video" | "audio"
   proxySrc: string
   name: string
+  size?: number
 }) {
-  const [src, setSrc] = useState(proxySrc)
+  const [src, setSrc] = useState<string | null>(null)
+  const [stage, setStage] = useState<"signed" | "proxy" | "transcoded">("signed")
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [converting, setConverting] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const blobUrlRef = useRef<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const stageRef = useRef<"signed" | "proxy" | "transcoded">("signed")
+
+  useEffect(() => {
+    stageRef.current = stage
+  }, [stage])
 
   useEffect(() => {
     let cancelled = false
@@ -172,36 +255,134 @@ function SignedMedia({
         return (await response.json()) as { url?: string }
       })
       .then((payload) => {
-        if (!cancelled && payload?.url) setSrc(payload.url)
+        if (!cancelled) setSrc(payload?.url ?? proxySrc)
       })
       .catch(() => {
-        /* keep cookie-authenticated proxy URL */
+        if (!cancelled) setSrc(proxySrc)
       })
 
     return () => {
       cancelled = true
+      abortRef.current?.abort()
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
     }
   }, [proxySrc])
 
-  if (kind === "video") {
-    return (
-      <video
-        key={src}
-        src={src}
-        controls
-        preload="metadata"
-        className="max-h-full max-w-full"
-      >
-        <track kind="captions" />
-        {name}
-      </video>
+  async function recoverFromError() {
+    if (stageRef.current === "signed") {
+      setReady(false)
+      setStage("proxy")
+      setSrc(proxySrc)
+      return
+    }
+
+    if (kind === "video" && stageRef.current === "proxy") {
+      if (!canTranscodePreview(size)) {
+        setError("This video is too large to convert in the browser. Download it to play.")
+        return
+      }
+
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      setConverting(true)
+      setProgress(0)
+
+      try {
+        const blobUrl = await transcodePreview(proxySrc, {
+          onProgress: setProgress,
+          signal: controller.signal,
+        })
+        if (controller.signal.aborted) {
+          URL.revokeObjectURL(blobUrl)
+          return
+        }
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = blobUrl
+        setStage("transcoded")
+        setReady(false)
+        setSrc(blobUrl)
+        setConverting(false)
+      } catch (caught) {
+        if (controller.signal.aborted) return
+        if (caught instanceof Error && caught.name === "ConversionCanceledError") return
+        setConverting(false)
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "This video could not be previewed in this browser. Download it to play.",
+        )
+      }
+      return
+    }
+
+    setError(
+      kind === "video"
+        ? "This video could not be previewed in this browser. Download it to play."
+        : "This audio could not be previewed.",
     )
   }
 
+  const loading = Boolean(src) && !ready && !error && !converting
+  const waiting = !src && !error && !converting
+
   return (
-    <audio key={src} src={src} controls preload="metadata" className="w-full">
-      {name}
-    </audio>
+    <div
+      className="relative flex h-full w-full items-center justify-center"
+      aria-busy={waiting || loading || converting}
+    >
+      {waiting || loading || converting ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4">
+          <Skeleton className={kind === "video" ? "h-40 w-full max-w-sm" : "h-10 w-full max-w-sm"} />
+          {converting ? (
+            <div className="w-full max-w-sm">
+              <p className="mb-2 text-center text-sm text-muted-foreground">
+                Preparing a playable preview…
+              </p>
+              <Progress value={Math.round(progress * 100)}>
+                <span className="sr-only">
+                  Converting {Math.round(progress * 100)}%
+                </span>
+              </Progress>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {error ? (
+        <p className="p-6 text-center text-sm text-muted-foreground">{error}</p>
+      ) : null}
+      {src && !error && !converting ? (
+        kind === "video" ? (
+          <video
+            key={src}
+            src={src}
+            controls={ready}
+            preload="metadata"
+            onLoadedMetadata={() => setReady(true)}
+            onError={() => void recoverFromError()}
+            className={`max-h-full max-w-full transition-opacity ${ready ? "opacity-100" : "opacity-0"}`}
+          >
+            <track kind="captions" />
+            {name}
+          </video>
+        ) : (
+          <audio
+            key={src}
+            src={src}
+            controls={ready}
+            preload="metadata"
+            onLoadedMetadata={() => setReady(true)}
+            onError={() => void recoverFromError()}
+            className={`w-full transition-opacity ${ready ? "opacity-100" : "opacity-0"}`}
+          >
+            {name}
+          </audio>
+        )
+      ) : null}
+    </div>
   )
 }
 

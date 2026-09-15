@@ -1,6 +1,7 @@
 "use client"
 
 import { upload } from "@vercel/blob/client"
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
@@ -128,8 +129,18 @@ export function FileBrowser({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCount = useRef(0)
   const appliedFile = useRef<string | null>(null)
+  const navStackRef = useRef<string[]>([prefix])
+  const navIndexRef = useRef(0)
+  const skipNavSync = useRef(false)
+  const [canGoBack, setCanGoBack] = useState(false)
+  const [canGoForward, setCanGoForward] = useState(false)
 
-  const navigate = useCallback(
+  const publishNav = useCallback(() => {
+    setCanGoBack(navIndexRef.current > 0)
+    setCanGoForward(navIndexRef.current < navStackRef.current.length - 1)
+  }, [])
+
+  const hrefForPrefix = useCallback(
     (nextPrefix: string) => {
       const normalized = normalizePrefix(nextPrefix)
       const params = new URLSearchParams(searchParams.toString())
@@ -137,14 +148,52 @@ export function FileBrowser({
       else params.delete("path")
       params.delete("file")
       const queryString = params.toString()
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+      return queryString ? `${pathname}?${queryString}` : pathname
+    },
+    [pathname, searchParams],
+  )
+
+  const navigate = useCallback(
+    (nextPrefix: string) => {
+      const normalized = normalizePrefix(nextPrefix)
+      if (normalized === prefix) return
+      navStackRef.current = [
+        ...navStackRef.current.slice(0, navIndexRef.current + 1),
+        normalized,
+      ]
+      navIndexRef.current = navStackRef.current.length - 1
+      skipNavSync.current = true
+      publishNav()
+      router.push(hrefForPrefix(normalized), { scroll: false })
       appliedFile.current = null
       setSelectedPaths([])
       setAnchorPath(null)
       setQuery("")
     },
-    [pathname, router, searchParams],
+    [hrefForPrefix, prefix, publishNav, router],
   )
+
+  useEffect(() => {
+    if (skipNavSync.current) {
+      skipNavSync.current = false
+      return
+    }
+    const stack = navStackRef.current
+    const matches: number[] = []
+    for (let i = 0; i < stack.length; i++) {
+      if (stack[i] === prefix) matches.push(i)
+    }
+    if (matches.length > 0) {
+      const current = navIndexRef.current
+      navIndexRef.current = matches.reduce((best, idx) =>
+        Math.abs(idx - current) < Math.abs(best - current) ? idx : best,
+      )
+    } else {
+      navStackRef.current = [...stack.slice(0, navIndexRef.current + 1), prefix]
+      navIndexRef.current = navStackRef.current.length - 1
+    }
+    publishNav()
+  }, [prefix, publishNav])
 
   const fillFolderSizes = useCallback(async (currentPrefix: string) => {
     try {
@@ -252,7 +301,7 @@ export function FileBrowser({
     if (parent) params.set("path", parent.replace(/\/+$/, ""))
     else params.delete("path")
     const queryString = params.toString()
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
   }, [fileParam, prefix, pathname, router, searchParams])
 
   const configured = data?.configured ?? false
@@ -465,20 +514,70 @@ export function FileBrowser({
       if (nextDir === "asc") params.delete("dir")
       else params.set("dir", nextDir)
       const queryString = params.toString()
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname)
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
     },
     [pathname, router, searchParams],
   )
 
   useEffect(() => {
+    function scrollRowIntoView(itemPath: string) {
+      const row = document.querySelector(`[data-pathname="${CSS.escape(itemPath)}"]`)
+      row?.scrollIntoView({ block: "nearest" })
+    }
+
+    function selectAt(index: number, shiftKey: boolean) {
+      const next = items[index]
+      if (!next) return
+      if (shiftKey && anchorPath) {
+        setSelectedPaths(rangePaths(items, anchorPath, next.pathname))
+      } else {
+        setSelectedPaths([next.pathname])
+        setAnchorPath(next.pathname)
+      }
+      scrollRowIntoView(next.pathname)
+    }
+
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       if (target?.closest("input, textarea, select, [contenteditable=true]")) return
+      if (folderOpen || renameItem || deleteItems?.length) return
 
       const meta = event.metaKey || event.ctrlKey
       if (event.key === "Escape") {
         setSelectedPaths([])
         setSelectMode(false)
+        return
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault()
+        if (items.length === 0) return
+        const current = selectedPaths.at(-1)
+        const currentIndex = current
+          ? items.findIndex((item) => item.pathname === current)
+          : -1
+        const delta = event.key === "ArrowDown" ? 1 : -1
+        const nextIndex =
+          currentIndex === -1
+            ? delta > 0
+              ? 0
+              : items.length - 1
+            : Math.max(0, Math.min(items.length - 1, currentIndex + delta))
+        selectAt(nextIndex, event.shiftKey)
+        return
+      }
+      if (event.key === "Home" && items.length > 0) {
+        event.preventDefault()
+        selectAt(0, event.shiftKey)
+        return
+      }
+      if (event.key === "End" && items.length > 0) {
+        event.preventDefault()
+        selectAt(items.length - 1, event.shiftKey)
+        return
+      }
+      if (event.key === "Enter" && selectedItems.length === 1 && selectedItems[0]?.kind === "folder") {
+        event.preventDefault()
+        navigate(selectedItems[0].pathname)
         return
       }
       if (meta && event.key.toLowerCase() === "a") {
@@ -501,7 +600,11 @@ export function FileBrowser({
         pasteClipboard()
         return
       }
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedItems.length > 0) {
+      const deleteKey =
+        event.key === "Delete" ||
+        event.key === "Backspace" ||
+        ((event.metaKey || event.ctrlKey) && event.key === "Backspace")
+      if (deleteKey && selectedItems.length > 0) {
         event.preventDefault()
         setDeleteItems(selectedItems)
       }
@@ -509,7 +612,18 @@ export function FileBrowser({
 
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [clipboard, items, pasteClipboard, selectedItems, setClipboardFrom])
+  }, [
+    anchorPath,
+    deleteItems,
+    folderOpen,
+    items,
+    navigate,
+    pasteClipboard,
+    renameItem,
+    selectedItems,
+    selectedPaths,
+    setClipboardFrom,
+  ])
 
   function renderTable() {
     return (
@@ -626,7 +740,31 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
     >
       <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 py-3 sm:px-6">
         <AppHeader username={username} isAdmin={isAdmin}>
-          <FileBreadcrumbs prefix={prefix} onNavigate={navigate} />
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="flex shrink-0">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canGoBack}
+                aria-label="Back"
+                onClick={() => router.back()}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canGoForward}
+                aria-label="Forward"
+                onClick={() => router.forward()}
+              >
+                <ChevronRightIcon />
+              </Button>
+            </div>
+            <div className="min-w-0 flex-1">
+              <FileBreadcrumbs prefix={prefix} onNavigate={navigate} />
+            </div>
+          </div>
         </AppHeader>
         <FileToolbar
           query={query}
@@ -641,9 +779,7 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
           onSelectModeChange={setSelectMode}
         />
         <OrganizeBar
-          selectedCount={
-            selectedItems.length > 1 || selectMode ? selectedItems.length : 0
-          }
+          selectedCount={selectedItems.length}
           clipboard={
             clipboard
               ? { mode: clipboard.mode, count: clipboard.items.length }
@@ -669,7 +805,11 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
           <div className="min-h-0 flex-1 overflow-hidden">{renderTable()}</div>
           {selected && !selectMode ? (
             <div className="h-[42%] shrink-0 overflow-hidden border-t">
-              <FilePreview item={selected} onCopyLink={copyLink} />
+              <FilePreview
+                item={selected}
+                onCopyLink={copyLink}
+                onOpenFolder={(item) => navigate(item.pathname)}
+              />
             </div>
           ) : null}
         </div>
@@ -681,7 +821,11 @@ BLOB_STORE_URL=https://xxxx.private.blob.vercel-storage.com`}
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize="36" minSize="24" className="min-h-0 min-w-0 overflow-hidden">
               <div className="sticky top-0 flex h-full min-h-0 flex-col overflow-hidden">
-                <FilePreview item={selected} onCopyLink={copyLink} />
+                <FilePreview
+                  item={selected}
+                  onCopyLink={copyLink}
+                  onOpenFolder={(item) => navigate(item.pathname)}
+                />
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
