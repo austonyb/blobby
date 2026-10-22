@@ -1,3 +1,7 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+overrides:
+  "brace-expansion@1": "1.1.21"
+  source-map-js: "1.2.2"
