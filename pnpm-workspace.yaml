@@ -1,3 +1,8 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+overrides:
+  # Stay on the 1.x line. A bare >= range resolves to 5.x, which minimatch 3 cannot use.
+  "brace-expansion@1": "^1.1.21"
+  "source-map-js": "^1.2.2"
